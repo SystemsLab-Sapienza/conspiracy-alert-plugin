@@ -1,0 +1,28 @@
+{
+    "manifest_version": 3,
+    "name": "Conspiracy Alert",
+    "version": "1.0.0",
+    "action": {
+        "default_popup": "index.html",
+        "default_icon": "src/logo.png"
+    },
+    "icons": {
+        "16": "src/logo.png",
+        "48": "src/logo.png",
+        "128": "src/logo.png"
+    },
+    "content_scripts": [{
+        "js": ["src/main.tsx"],
+        "matches": ["<all_urls>"]
+    }],
+    "background": {
+        "service_worker": "src/background.ts",
+        "persistent": true
+    },
+    "permissions": [
+        "tabs",
+        "activeTab",
+        "scripting",
+        "storage"
+    ]
+}
