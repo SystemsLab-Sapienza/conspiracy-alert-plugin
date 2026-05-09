@@ -1,0 +1,34 @@
+cff-version: 1.2.0
+message: "If you use this artifact, please cite the associated paper."
+title: "Conspiracy Alert Plugin"
+type: software
+authors:
+  - family-names: "Imperati"
+    given-names: "Vincenzo"
+  - family-names: "La Morgia"
+    given-names: "Massimo"
+  - family-names: "Mei"
+    given-names: "Alessandro"
+  - family-names: "Mongardini"
+    given-names: "Alberto Maria"
+  - family-names: "Sassi"
+    given-names: "Francesco"
+version: "1.0.0"
+repository-code: "https://github.com/SystemsLab-Sapienza/conspiracy-alert-plugin"
+preferred-citation:
+  type: conference-paper
+  title: "The Conspiracy Money Machine: Uncovering Telegram's Conspiracy Channels and their Profit Model"
+  authors:
+    - family-names: "Imperati"
+      given-names: "Vincenzo"
+    - family-names: "La Morgia"
+      given-names: "Massimo"
+    - family-names: "Mei"
+      given-names: "Alessandro"
+    - family-names: "Mongardini"
+      given-names: "Alberto Maria"
+    - family-names: "Sassi"
+      given-names: "Francesco"
+  conference: "34th USENIX Security Symposium (USENIX Security 25)"
+  year: 2025
+  url: "https://arxiv.org/abs/2310.15977"
