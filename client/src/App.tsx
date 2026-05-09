@@ -1,119 +1,172 @@
-import React, { useEffect, useMemo } from "react";
-import logo from "./logo.png"
+import React, { useEffect, useMemo, useState } from "react";
 
-interface Response {
-  url: string | null,
-  conspiracy_resource_dataset: boolean,
-  conspiracy_url_dataset: boolean
-}
+import logo from "./logo.png";
+import { EVALUATE_URL_MESSAGE, isHttpUrl, type EvaluateUrlMessage } from "./messages";
+import {
+  buildPopupState,
+  isStoredError,
+  selectActiveError,
+  selectActiveEvaluation,
+  type PopupTone,
+  type StoredError,
+  type StoredEvaluation,
+} from "./popupState";
+
+const STORAGE_KEY = "lastEvaluation";
+const ERROR_KEY = "lastError";
+
+const toneClasses: Record<PopupTone, string> = {
+  danger: "border-red-200 bg-red-50 text-red-950",
+  warning: "border-amber-200 bg-amber-50 text-amber-950",
+  neutral: "border-slate-200 bg-slate-50 text-slate-950",
+  loading: "border-sky-200 bg-sky-50 text-sky-950",
+  error: "border-amber-300 bg-amber-50 text-amber-950",
+};
 
 function App() {
+  const [storedEvaluation, setStoredEvaluation] = useState<StoredEvaluation | null>(null);
+  const [storedError, setStoredError] = useState<StoredError | null>(null);
+  const [currentUrl, setCurrentUrl] = useState<string | null>(null);
+  const [currentTabId, setCurrentTabId] = useState<number | null>(null);
+  const [isChecking, setIsChecking] = useState(false);
 
-  // load the response from the background script
-  const [response, setResponse] = React.useState<Response>({
-    url: null,
-    conspiracy_resource_dataset: false,
-    conspiracy_url_dataset: false
-  });
   useEffect(() => {
-    // get the response from the background script
-    chrome.storage.local.get(["response"], (result) => {
-      if (result.response) {
-        console.log("Response loaded", result.response);
-        setResponse(result.response);
-      }
+    chrome.storage.local.get([STORAGE_KEY, ERROR_KEY], (result) => {
+      setStoredEvaluation((result[STORAGE_KEY] as StoredEvaluation | undefined) ?? null);
+      setStoredError(isStoredError(result[ERROR_KEY]) ? result[ERROR_KEY] : null);
     });
+
+    const listener = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: string,
+    ) => {
+      if (areaName !== "local") {
+        return;
+      }
+      if (changes[STORAGE_KEY]) {
+        setStoredEvaluation((changes[STORAGE_KEY].newValue as StoredEvaluation | undefined) ?? null);
+      }
+      if (changes[ERROR_KEY]) {
+        const newError = changes[ERROR_KEY].newValue;
+        setStoredError(isStoredError(newError) ? newError : null);
+      }
+    };
+
+    chrome.storage.onChanged.addListener(listener);
+    return () => chrome.storage.onChanged.removeListener(listener);
   }, []);
 
-  // get the current tab url
-  const [currentUrl, setCurrentUrl] = React.useState<string | null>(null);
   useEffect(() => {
-    // get the current tab url
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0].url) {
-        setCurrentUrl(tabs[0].url);
-      }
+      const activeTab = tabs[0];
+      setCurrentUrl(activeTab?.url ?? null);
+      setCurrentTabId(activeTab?.id ?? null);
     });
   }, []);
 
-  // set the text based on the response
-  const text = useMemo(() => {
-    if (response.url !== null && response.url.toString().replace(/\/+$/, "") === currentUrl?.replace(/\/+$/, "")) {
-      if (response.conspiracy_url_dataset === true) {
-        return "This URL is considered a conspiracy URL."
-      }
-      if (response.conspiracy_resource_dataset === true) {
-        return "This URL has matched a conspiracy resource."
-      } 
-      if (response.conspiracy_resource_dataset === false && response.conspiracy_url_dataset === false) {
-        return "This URL is safe."
-      }
-    }
-    return "Loading..."
-  }, [response, currentUrl]);
+  const activeEvaluation = useMemo(() => {
+    return selectActiveEvaluation(storedEvaluation, currentUrl);
+  }, [storedEvaluation, currentUrl]);
 
-  // check if the website is dangerous based on the response
-  const isDangerous = useMemo(() => { 
-    if (response.url !== null && response.url.toString().replace(/\/+$/, "") === currentUrl?.replace(/\/+$/, "")) {
-      if (response.conspiracy_url_dataset === true) {
-        return true
-      }
-      if (response.conspiracy_resource_dataset === true) {
-        return true
-      } 
-      if (response.conspiracy_resource_dataset === false && response.conspiracy_url_dataset === false) {
-        return false
-      }
-    }
-    return null
-  }, [response, currentUrl]);
+  const activeError = useMemo(() => {
+    return selectActiveError(storedError, currentUrl);
+  }, [storedError, currentUrl]);
 
-  // set the message based on the response
-  const message = useMemo(() => {
-    if (isDangerous === null) {
-      return (
-        // loading message
-        <div className="bg-yellow-100 text-yellow-900 px-4 py-2 mt-4 rounded-md">
-          <p>
-            {text}
-          </p>
-        </div>
-      );
-    } else if (isDangerous === true) {
-      return (
-        // dangerous message
-        <div className="bg-red-100 text-red-900 px-4 py-2 mt-4 rounded-md">
-          <p>
-            {text}
-          </p>
-        </div>
-      );
-    } else if (isDangerous === false) {
-      return (
-        // safe message
-        <div className="bg-green-100 text-green-900 px-4 py-2 mt-4 rounded-md">
-          <p>
-            {text}
-          </p>
-        </div>
-      );
+  const state = useMemo(() => {
+    if (activeError) {
+      return {
+        tone: "error" as const,
+        title: "Backend unavailable",
+        description: activeError.message,
+      };
     }
-    return null
-  }, [text, isDangerous]);
+    return buildPopupState(activeEvaluation);
+  }, [activeEvaluation, activeError]);
 
-  // render the app
+  const displayUrl = activeEvaluation?.normalized_url ?? currentUrl ?? "No active tab URL";
+  const canCheckCurrentUrl = currentUrl !== null && isHttpUrl(currentUrl);
+
+  function handleCheckNow(): void {
+    if (!canCheckCurrentUrl || currentUrl === null) {
+      return;
+    }
+
+    const message: EvaluateUrlMessage = {
+      type: EVALUATE_URL_MESSAGE,
+      url: currentUrl,
+      source: "manual",
+      ...(currentTabId === null ? {} : { tabId: currentTabId }),
+    };
+    setIsChecking(true);
+    chrome.runtime.sendMessage(message, () => setIsChecking(false));
+  }
+
   return (
-    <div className="min-w-80 min-h-40 flex flex-col justify-center items-center m-4">
-      <img src={logo} alt="logo" className="w-20 h-20" />
-      <h1 className="text-2xl font-bold">
-        Conspiracy Alert
-      </h1>
-      {message}
-      <button className="bg-blue-500 text-white px-4 py-2 mt-4 rounded-md" onClick={() => window.close()}>
-        close
+    <main className="min-w-80 max-w-sm p-4 text-slate-950">
+      <header className="flex items-center gap-3 border-b border-slate-200 pb-3">
+        <img src={logo} alt="" className="h-10 w-10" />
+        <div>
+          <h1 className="text-lg font-semibold leading-tight">Conspiracy Alert</h1>
+          <p className="text-xs text-slate-500">Channel Checker backend</p>
+        </div>
+      </header>
+
+      <section className={`mt-4 rounded-md border p-3 ${toneClasses[state.tone]}`}>
+        <h2 className="text-sm font-semibold">{state.title}</h2>
+        <p className="mt-1 text-sm leading-snug">{state.description}</p>
+      </section>
+
+      <section className="mt-4">
+        <p className="text-xs font-medium uppercase text-slate-500">Current URL</p>
+        <p className="mt-1 break-all rounded border border-slate-200 bg-white p-2 text-xs text-slate-700">
+          {displayUrl}
+        </p>
+      </section>
+
+      {activeEvaluation?.signals.length ? (
+        <section className="mt-4">
+          <p className="text-xs font-medium uppercase text-slate-500">Signals</p>
+          <ul className="mt-2 space-y-2">
+            {activeEvaluation.signals.map((signal) => (
+              <li key={signal.type} className="rounded border border-slate-200 bg-white p-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-medium">{signal.type}</span>
+                  <span className="text-xs uppercase text-slate-500">{signal.severity}</span>
+                </div>
+                <p className="mt-1 text-xs text-slate-600">{signal.message}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <button
+        className="mt-4 w-full rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+        disabled={!canCheckCurrentUrl || isChecking}
+        onClick={handleCheckNow}
+        type="button"
+      >
+        {isChecking ? "Checking..." : "Check now"}
       </button>
-    </div>
-  )
+
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <button
+          className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800"
+          onClick={() => chrome.runtime.openOptionsPage()}
+          type="button"
+        >
+          Settings
+        </button>
+        <button
+          className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white"
+          onClick={() => window.close()}
+          type="button"
+        >
+          Close
+        </button>
+      </div>
+    </main>
+  );
 }
 
-export default App
+export default App;

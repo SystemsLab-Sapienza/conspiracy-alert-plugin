@@ -20,7 +20,7 @@ If you use this plugin, or the findings from the paper, please cite:
 - [Overview](#overview)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
-  - [Server Setup](#server-setup)
+  - [Backend Setup](#backend-setup)
   - [Client Setup](#client-setup)
 - [Building the Client](#building-the-client)
 - [Installing the Browser Plugin](#installing-the-browser-plugin)
@@ -28,69 +28,58 @@ If you use this plugin, or the findings from the paper, please cite:
 
 ## Overview
 
-This repository contains the code for both the server and client sides of conspiracy alert plugin. The server handles backend operations, while the client is responsible for the frontend interface that users interact with in their browsers.
+This repository contains the browser extension client for the Channel Checker backend. The rebuilt
+client calls the FastAPI backend from `channel-checker-bot`, stores only the latest tab evaluation
+in Chrome local extension storage, and renders a compact popup for the current tab. The backend URL
+defaults to `http://127.0.0.1:8000` and can be changed from the extension options page.
+When a page URL matches a dataset or monetization signal, the extension also shows a non-blocking
+in-page banner and marks the extension icon with a per-tab badge.
+
+For a reviewer-friendly setup path, start with [ARTIFACT.md](ARTIFACT.md).
 
 ## Prerequisites
 
 Before you begin, ensure you have the following installed:
 
-- Python 3.x
-- Node.js and npm
-- Git
+- Node.js 24 with npm, matching CI.
+- Git.
+- The sibling `channel-checker-bot` and `conspiracy-dataset-telegram` repositories when running
+  the extension against the paper artifact backend.
 
 ## Installation
 
-### Server Setup
+### Backend Setup
 
-1. Clone the repository:
-    ```bash
-      git clone https://github.com/SystemsLab-Sapienza/conspiracy-alert-plugin.git
-      cd conspiracy-alert-plugin/server
-    ```
+Run the backend from the sibling `channel-checker-bot` repository:
 
-2. Create a virtual environment:
-    ```bash
-      python3 -m venv venv
-    ```
-
-3. Activate the virtual environment:
-
-    - On macOS/Linux:
-
-      ```bash
-        source venv/bin/activate
-      ```
-
-    - On Windows:
-
-      ```bash
-        venv\Scripts\activate
-      ```
-      
-4. Install the required Python packages:
-
-    ```bash
-      pip3 install -r requirements.txt
-    ```
-
-5. Start the server:
-
-    ```bash
-      python3 server.py
-    ```
+```bash
+cd ../channel-checker-bot
+CHANNEL_CHECKER_DATASET_DIR=../conspiracy-dataset-telegram \
+PYTHONPATH=src uvicorn --factory channel_checker.api.server:create_app_from_environment \
+  --host 127.0.0.1 \
+  --port 8000
+```
 
 ### Client Setup
 
 1. Navigate to the client directory:
 
     ```bash
-      cd ../client
+      cd client
     ```
 
 2. Install the required Node.js packages:
 
     ```bash
-      npm install
+      npm ci
+    ```
+
+3. Run client checks:
+
+    ```bash
+      npm test
+      npm run check
+      npm run build
     ```
 
 ## Building the Client
@@ -102,6 +91,14 @@ To build the client for production, run the following command in the client dire
 ```
 
 This will create a production-ready build of the client in the `dist` folder.
+
+To create the installable ZIP artifact used by CI:
+
+```bash
+  npm run package
+```
+
+The archive is written to `client/release/` and contains the built extension files from `dist`.
 
 ## Installing the Browser Plugin
 
@@ -116,3 +113,18 @@ To install the custom browser plugin, follow these steps:
 ## Usage
 
 Once the plugin is installed, you can access its features directly from your browser's toolbar.
+Use the popup Settings button, or the browser extension details page, to configure a non-default
+backend URL.
+
+On matching pages, the content script asks the background worker to evaluate the current URL and
+shows a dismissible banner inside the page. The browser toolbar popup does not open automatically.
+Dataset/resource matches are labeled as questionable resources; affiliate, donation, crowdfunding,
+marketplace, and commerce-path matches are labeled as monetization signals. If the backend is
+unavailable, the page is not modified and the extension icon shows a `?` badge.
+
+Automatic in-page checks are enabled by default and can be disabled from the extension options
+page. The popup still supports manual checks through `Check now`.
+
+## License
+
+This software artifact is released under the MIT License. See [LICENSE](LICENSE).
